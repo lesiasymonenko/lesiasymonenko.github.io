@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link
+            href="https://fonts.cdnfonts.com/css/8bit-wonder"
+            rel="stylesheet" />
+
+        <link rel="stylesheet" type="text/css" href="styles.css" />
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+        <script src="./space-invaders.js"></script>
+
+        <title>Lesia Symonenko: The Space Invaders</title>
+    </head>
+    <body>
+        <div class="game-screen">
+            <div class="score-bar">
+                <h3>Lives: <span id="livesCount"></span></h3>
+                <h3>Wave <span id="waveCount"></span></h3>
+                <h3>Score: <span id="scoreCount"></span></h3>
+            </div>
+
+            <div class="game-field">
+                <div class="information">
+                    <div class="game-start">
+                        <p>
+                            Hello Pilot! Invaders from deep space attacking our
+                            planet!
+                        </p>
+                        <p>
+                            Use Left/Right buttons for control and Space to
+                            fire!
+                        </p>
+                        <p>Press Start button to fight agains them!</p>
+
+                        <button class="start-button">Start Game</button>
+                    </div>
+
+                    <div class="game-over">
+                        <p>You lost!</p>
+                        <p>Our planet was invaded! Oops!</p>
+                        <p>You scored <span id="scored"></span></p>
+
+                        <button class="start-button">Try Again!</button>
+                    </div>
+
+                    <div class="game-win">
+                        <p>Hurray! You've destroyed all incoming invaders!</p>
+                        <p>But this was only beggining.</p>
+                        <p>Keep in mind: this time more bombs</p>
+
+                        <button class="next-round-button">
+                            Continue to next wave
+                        </button>
+                    </div>
+                </div>
+
+                <div class="invaders-fleet"></div>
+                <img
+                    class="invader"
+                    src="assets/invader-1.png"
+                    style="display: none" />
+                <img class="spaceship" src="assets/spaceship.png" />
+                <img class="missile" src="assets/missile.png" />
+                <img class="bomb" src="assets/bomb.png" style="display: none" />
+                <div class="invaders-row"></div>
+            </div>
+        </div>
+
+        <script>
+            $(document).ready(function () {
+                var wave = 1;
+                var score = 0;
+                var lives = 3;
+
+                updateStats();
+
+                var spaceship = new Spaceship(".spaceship");
+                var invadersFleet = $(".invaders-fleet");
+                var aliveInvaders = [];
+                var gameLoopTimer;
+
+                var invaderBombChance;
+
+                const MUSIC = new Audio(
+                    "assets/stardust-danijel-zambo-main-version-03-13-1372.mp3"
+                );
+
+                $(".game-over").hide();
+                $(".game-win").hide();
+
+                $(".start-button").on("click", function () {
+                    $(".game-start").hide();
+                    $(".game-over").hide();
+                    $(".game-win").hide();
+                    startGame();
+                });
+
+                $(".next-round-button").on("click", function () {
+                    console.log("Starting next round");
+                    $(".game-start").hide();
+                    $(".game-over").hide();
+                    $(".game-win").hide();
+                    startGame(wave + 1, lives, score, invaderBombChance * 1.5);
+                });
+
+                function animateInvadersMovement() {
+                    invadersFleet
+                        .fadeOut(250)
+                        .fadeIn(250)
+                        .fadeOut(250)
+                        .fadeIn(250)
+                        .fadeOut(250)
+                        .fadeIn(250);
+
+                    let currentY = invadersFleet.position().left;
+                    var maxX = $(".game-field").width() - invadersFleet.width();
+                    let yStep = 60;
+
+                    for (var i = 0; i < 4; i++) {
+                        var nextX = 0;
+                        if (i % 2 == 0) {
+                            nextX = maxX;
+                        }
+                        invadersFleet.animate(
+                            {
+                                left: nextX,
+                                top: currentY + yStep * (i + 1),
+                            },
+                            10000
+                        );
+                    }
+
+                    // Once invaders reached ground we need to flash them and player lost
+                    invadersFleet
+                        .fadeOut(250)
+                        .fadeIn(250)
+                        .fadeOut(250)
+                        .fadeIn(250)
+                        .fadeOut(250)
+                        .fadeIn(250, function () {playerLost();});
+                }
+
+                function createInvaders(invadersInRow, rowNumber) {
+                    let templateInvader = $(".invader").first();
+                    let templateInvaderRow = $(".invaders-row").first();
+
+                    for (i = 0; i < rowNumber; i++) {
+                        row = templateInvaderRow.clone();
+                        row.show();
+
+                        for (j = 0; j < invadersInRow; j++) {
+                            var invaderElement = templateInvader.clone();
+                            let colorId = i + 1;
+                            invaderElement.attr("src", "assets/invader-" + colorId + ".png");
+                            invaderElement.show();
+                            var id = i + ":" + j;
+                            var newInvader = new Invader(id, invaderElement);
+                            aliveInvaders.push(newInvader);
+                            invaderElement.appendTo(row);
+                        }
+
+                        row.appendTo(invadersFleet);
+                    }
+
+                    console.log(
+                        "Created invaders. Now we have " +
+                            aliveInvaders.length +
+                            " alive invaders"
+                    );
+
+                    templateInvaderRow.hide();
+                    templateInvader.hide();
+                }
+
+                // Simple collision detection based on rectangles
+                // both elementA and elementB should be jquery objects
+                function isCollision(invader, missile) {
+                    var invaderPos = invader.getCoordinates();
+                    var missilePos = missile.getCoordinates();
+
+                    var x1A = invaderPos[0];
+                    var y1A = invaderPos[1];
+                    var x2A = invaderPos[2];
+                    var y2A = invaderPos[3];
+
+                    var x1B = missilePos[0];
+                    var y1B = missilePos[1];
+                    var x2B = missilePos[2];
+                    var y2B = missilePos[3];
+
+                    if (x1A < x2B && x2A > x1B && y1A < y2B && y2A > y1B) {
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                function checkMissileHitInvaders() {
+                    var deadInvaderIndex = -1;
+
+                    for (var i = 0; i < aliveInvaders.length; i++) {
+                        var missile = spaceship.missile;
+                        var currentInvader = aliveInvaders[i];
+
+                        var isHit = isCollision(currentInvader, missile);
+
+                        if (isHit) {
+                            console.log(
+                                "Invader " +
+                                    currentInvader.id +
+                                    " was hit by player's missile"
+                            );
+
+                            missile.destroy();
+                            currentInvader.destroy();
+
+                            score = score + 10;
+
+                            deadInvaderIndex = i;
+
+                            break;
+                        }
+                    }
+
+                    if (deadInvaderIndex > -1) {
+                        aliveInvaders.splice(deadInvaderIndex, 1);
+                    }
+
+                    if (aliveInvaders.length == 0) {
+                        playerWin();
+                    }
+                }
+
+                function getRandomInt(max) {
+                    return Math.floor(Math.random() * max);
+                }
+
+                function invadersDropBombs(bombProbability) {
+                    var rnd = Math.random();
+                    if (rnd < bombProbability) {
+                        let indexOfInvader = getRandomInt(aliveInvaders.length);
+                        let invaderThatDropsBomb =
+                            aliveInvaders[indexOfInvader];
+                        invaderThatDropsBomb.dropBomb();
+                    }
+                }
+
+                function checkBombHitPlayer() {
+                    for (var i = 0; i < aliveInvaders.length; i++) {
+                        var currentInvader = aliveInvaders[i];
+                        let currentBomb = currentInvader.bomb;
+
+                        var isHit = isCollision(spaceship, currentBomb);
+
+                        if (isHit && spaceship.isReady) {
+                            console.log("Player was killed by bomb");
+
+                            currentBomb.destroy();
+                            spaceship.destroy();
+
+                            lives = lives - 1;
+
+                            break;
+                        }
+                    }
+
+                    if (lives == 0) {
+                        playerLost();
+                    }
+                }
+
+                function playerLost() {
+                    stopGame();
+                    console.log("Player Lost");
+                    $(".game-over").show();
+                }
+
+                function playerWin() {
+                    stopGame();
+                    console.log("Player Won");
+                    $(".game-win").show();
+                }
+
+                function gameLoop() {
+                    invadersDropBombs(invaderBombChance);
+                    checkMissileHitInvaders();
+                    checkBombHitPlayer();
+                    updateStats();
+                }
+
+                function updateStats() {
+                    $("#livesCount").text(lives);
+                    $("#scoreCount").text(score);
+                    $("#scored").text(score);
+                    $("#waveCount").text(wave);
+                }
+
+                function clearGame() {
+                    spaceship.hide();
+                    aliveInvaders = [];
+                    invadersFleet.stop(true);
+                    invadersFleet.html("");
+                    invadersFleet.css({ left: "", top: "" });
+
+                    let allBombs = $(".bomb:visible").each(function () {
+                        $(this).remove();
+                    });
+                }
+
+                function startGame(
+                    waveToBegin = 1,
+                    livesToBegin = 3,
+                    scoresToBegin = 0,
+                    invaderBombFiringChance = 1 / 60
+                ) {
+                    updateStats();
+                    MUSIC.play();
+                    clearGame();
+
+                    console.log(
+                        "Starting new game. Wave %d, Lives %d, Scores %d, Bombing chance %f",
+                        waveToBegin,
+                        livesToBegin,
+                        scoresToBegin,
+                        invaderBombFiringChance
+                    );
+
+                    invaderBombChance = invaderBombFiringChance;
+                    score = scoresToBegin;
+                    lives = livesToBegin;
+                    wave = waveToBegin;
+
+                    spaceship.prepareForFlight();
+
+                    createInvaders(8, 5);
+                    animateInvadersMovement();
+
+                    document.addEventListener("keydown", whatToDoWhenKeyDown, false);
+                    document.addEventListener("keyup", whatToDoWhenKeyUp, false);
+
+                    gameLoopTimer = setInterval(gameLoop, 1000 / 30);
+                }
+
+                function stopGame() {
+                    clearInterval(gameLoopTimer);
+
+                    document.removeEventListener("keydown", whatToDoWhenKeyDown,false);
+                    document.removeEventListener( "keyup", whatToDoWhenKeyUp, false);
+
+                    updateStats();
+                    clearGame();
+                }
+
+                function whatToDoWhenKeyUp(event) {
+                    var code = event.code;
+
+                    if (code == "ArrowRight") {
+                        spaceship.stop();
+                    }
+
+                    if (code == "ArrowLeft") {
+                        spaceship.stop();
+                    }
+                }
+
+                function whatToDoWhenKeyDown(event) {
+                    var code = event.code;
+                    var isRepeatedPress = event.repeat;
+
+                    if (code == "ArrowRight" && !isRepeatedPress) {
+                        spaceship.moveRight();
+                    }
+
+                    if (code == "ArrowLeft" && !isRepeatedPress) {
+                        spaceship.moveLeft();
+                    }
+
+                    if (code == "Space") {
+                        spaceship.fire();
+                    }
+                }
+            });
+        </script>
+    </body>
+</html>
